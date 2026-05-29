@@ -1,51 +1,28 @@
-import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
-export async function middleware(request: NextRequest) {
-  let supabaseResponse = NextResponse.next({ request })
+export function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl
 
-  try {
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          getAll() {
-            return request.cookies.getAll()
-          },
-          setAll(cookiesToSet) {
-            cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value))
-            supabaseResponse = NextResponse.next({ request })
-            cookiesToSet.forEach(({ name, value, options }) =>
-              supabaseResponse.cookies.set(name, value, options)
-            )
-          },
-        },
-      }
-    )
+  // Detect Supabase auth session cookie (works with both old and new key formats)
+  const cookies = request.cookies.getAll()
+  const hasSession = cookies.some(
+    (c) =>
+      c.name.includes('auth-token') ||
+      c.name.startsWith('sb-') ||
+      c.name === 'supabase-auth-token'
+  )
 
-    const { data: { user } } = await supabase.auth.getUser()
-
-    const { pathname } = request.nextUrl
-
-    // Redirect unauthenticated users away from dashboard
-    if (pathname.startsWith('/dashboard') && !user) {
-      return NextResponse.redirect(new URL('/login', request.url))
-    }
-
-    // Redirect authenticated users away from auth pages
-    if ((pathname === '/login' || pathname === '/register') && user) {
-      return NextResponse.redirect(new URL('/dashboard', request.url))
-    }
-  } catch {
-    // If Supabase is unavailable, allow the request through without auth checks
-    const { pathname } = request.nextUrl
-    if (pathname.startsWith('/dashboard')) {
-      return NextResponse.redirect(new URL('/login', request.url))
-    }
+  // Redirect unauthenticated users away from dashboard
+  if (pathname.startsWith('/dashboard') && !hasSession) {
+    return NextResponse.redirect(new URL('/login', request.url))
   }
 
-  return supabaseResponse
+  // Redirect authenticated users away from auth pages
+  if ((pathname === '/login' || pathname === '/register') && hasSession) {
+    return NextResponse.redirect(new URL('/dashboard', request.url))
+  }
+
+  return NextResponse.next()
 }
 
 export const config = {
